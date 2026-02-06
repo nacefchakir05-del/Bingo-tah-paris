@@ -2,120 +2,187 @@ import streamlit as st
 import random
 import json
 
-# 1. CONFIGURATION
-st.set_page_config(page_title="Bingo Reveal VIP", layout="centered")
-
-COULEURS = ["#FF4B4B", "#4BFF4B", "#36D1FF", "#FF4BFF", "#FFD700", "#00FFC8", "#FF964B"]
+# 1. CONFIGURATION & STYLE RETRO
+st.set_page_config(page_title="BINGO SEMI_Safe place", layout="centered")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #121212 !important; color: #ffffff !important; }
-    
-    .bingo-container { 
-        display: grid; 
-        grid-template-columns: repeat(5, 1fr); 
-        gap: 8px; 
-        width: 100%;
-        max-width: 450px; 
-        margin: 20px auto; 
+    @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+    /* Fond style Arcade */
+    .stApp {
+        background-color: #050505 !important;
+        background-image: radial-gradient(#1a1a2e 0.5px, transparent 0.5px);
+        background-size: 20px 20px;
+        color: #00ff41 !important; /* Vert Matrix */
+        font-family: 'VT323', monospace !important;
     }
-    
-    .bingo-box { 
-        aspect-ratio: 1/1; 
-        background: #ffffff !important; 
-        color: #000000 !important; 
-        border-radius: 10px; 
-        display: flex; 
-        align-items: center; 
-        justify-content: center; 
-        text-align: center; 
-        font-size: clamp(8px, 2.5vw, 11px); 
-        font-weight: bold; 
+
+    /* Grille Bingo */
+    .bingo-container {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+        max-width: 500px;
+        margin: 20px auto;
+    }
+
+    /* Cases du Bingo */
+    .bingo-box {
+        aspect-ratio: 1/1;
+        background: #111 !important;
+        border: 3px solid #333;
+        color: #555 !important; /* Texte caché (sombre) par défaut */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        font-size: 14px;
         padding: 5px;
-        border: 4px solid var(--p-color);
-        transition: all 0.3s ease;
+        border-radius: 5px;
+        transition: all 0.5s ease;
+        text-transform: uppercase;
     }
 
-    /* Animation quand on trouve un mot */
-    .found { 
-        transform: scale(1.1);
-        box-shadow: 0 0 20px var(--p-color);
-        border-width: 6px;
-        z-index: 2;
+    /* Style Case Révélée (Glow Néon) */
+    .revealed {
+        background: #fff !important;
+        color: #000 !important;
+        border: 4px solid var(--p-color) !important;
+        box-shadow: 0 0 15px var(--p-color), inset 0 0 10px var(--p-color);
+        transform: scale(1.02);
     }
-    
-    /* Quand on cherche, on estompe ce qui ne correspond pas */
-    .not-found { opacity: 0.15; filter: grayscale(1) blur(1px); }
 
-    input { background-color: #ffffff !important; color: #000000 !important; }
-    .stButton>button { background: linear-gradient(90deg, #00d4ff, #0055ff) !important; color: white !important; border-radius: 20px !important; }
+    /* Sidebar Style */
+    section[data-testid="stSidebar"] {
+        background-color: #0a0a0a !important;
+        border-right: 2px solid #00ff41;
+    }
+
+    .legend-item {
+        padding: 8px;
+        margin: 5px 0;
+        border: 1px solid #333;
+        border-radius: 5px;
+        font-size: 18px;
+    }
+
+    /* Inputs et Boutons Retro */
+    input { background-color: #222 !important; color: #00ff41 !important; border: 1px solid #00ff41 !important; }
+    .stButton>button {
+        background-color: #ff00ff !important; /* Rose Néon */
+        color: white !important;
+        border: none !important;
+        box-shadow: 4px 4px 0px #800080;
+        font-family: 'VT323', monospace !important;
+        font-size: 20px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. INITIALISATION
-if 'all_ideas' not in st.session_state: st.session_state.all_ideas = []
+# 2. INITIALISATION DE LA MÉMOIRE (SESSION STATE)
 if 'players' not in st.session_state: st.session_state.players = []
+if 'all_ideas' not in st.session_state: st.session_state.all_ideas = []
+if 'revealed_indices' not in st.session_state: st.session_state.revealed_indices = {} # Par joueur
 
-SECRET_CODE = "1234"
+COLORS = ["#00ffff", "#ff00ff", "#ffff00", "#ff0000", "#00ff00", "#ff8000", "#ffffff"]
+SECRET = "1234"
 
-# 3. SIDEBAR
+# 3. BARRE LATÉRALE : LÉGENDE & SAUVEGARDE
 with st.sidebar:
-    st.header("⚙️ Admin")
-    with st.expander("💾 Sauvegarde"):
-        import_data = st.text_area("Code :")
-        if st.button("Charger"):
-            data = json.loads(import_data)
+    st.title("🕹️ STATUS")
+    
+    if st.session_state.players:
+        st.subheader("LÉGENDE JOUEURS")
+        for p in st.session_state.players:
+            st.markdown(f'<div class="legend-item" style="color: {p["color"]}; border-color: {p["color"]};">■ {p["name"]}</div>', unsafe_allow_html=True)
+    
+    st.divider()
+    with st.expander("💾 BACKUP SYSTEM"):
+        save_code = st.text_area("Coller code ici :")
+        if st.button("RESTAURER"):
+            data = json.loads(save_code)
             st.session_state.all_ideas = data['ideas']
             st.session_state.players = data['players']
             st.rerun()
+        
         if st.session_state.all_ideas:
-            st.code(json.dumps({"ideas": st.session_state.all_ideas, "players": st.session_state.players}))
-    
-    if st.button("🗑️ Reset"):
+            current_json = json.dumps({"ideas": st.session_state.all_ideas, "players": st.session_state.players})
+            st.code(current_json)
+
+    if st.button("RESET GAME"):
         st.session_state.clear()
         st.rerun()
 
-st.title("🎲 BINGO REVEAL")
+# 4. LOGIQUE PRINCIPALE
+st.title("👾 BINGO RADICAL 80S")
 
-# 4. LOGIQUE
+# PHASE 1 : INSCRIPTION (7 JOUEURS)
 if len(st.session_state.players) < 7:
-    with st.form(key=f"f_{len(st.session_state.players)}", clear_on_submit=True):
-        nom = st.text_input("Prénom :")
-        i = [st.text_input(f"Idée {j+1}") for j in range(4)]
-        if st.form_submit_button("Valider"):
-            if nom and all(i):
-                col = COULEURS[len(st.session_state.players)]
-                st.session_state.players.append({"name": nom, "color": col})
-                for txt in i:
-                    st.session_state.all_ideas.append({"text": txt, "color": col})
+    st.header(f"READY PLAYER {len(st.session_state.players)+1}")
+    with st.form(key=f"reg_{len(st.session_state.players)}", clear_on_submit=True):
+        nom = st.text_input("NOM DU JOUEUR :")
+        i1 = st.text_input("PRÉDICTION 1")
+        i2 = st.text_input("PRÉDICTION 2")
+        i3 = st.text_input("PRÉDICTION 3")
+        i4 = st.text_input("PRÉDICTION 4")
+        if st.form_submit_button("S'INSCRIRE"):
+            if nom and i1 and i2 and i3 and i4:
+                p_color = COLORS[len(st.session_state.players)]
+                st.session_state.players.append({"name": nom, "color": p_color})
+                for text in [i1, i2, i3, i4]:
+                    st.session_state.all_ideas.append({"text": text, "color": p_color})
                 st.rerun()
 
+# PHASE 2 : LE JEU
 else:
-    code = st.text_input("Code secret :", type="password")
-    if code == SECRET_CODE:
-        joueur = st.selectbox("Qui regarde ?", ["--"] + [p['name'] for p in st.session_state.players])
+    st.subheader("INSERT COIN TO REVEAL")
+    pwd = st.text_input("CODE D'ACCÈS :", type="password")
+    
+    if pwd == SECRET:
+        user_view = st.selectbox("CHOISIS TA GRILLE :", [p['name'] for p in st.session_state.players])
         
-        if joueur != "--":
-            # Champ Reveal hors du formulaire pour réactivité immédiate
-            search = st.text_input("🔍 Chercher un mot (ex: 'bière')").lower().strip()
+        # Initialisation de la mémoire de révélation pour ce joueur si vide
+        if user_view not in st.session_state.revealed_indices:
+            st.session_state.revealed_indices[user_view] = set()
+
+        st.divider()
+        st.write("🔍 **REVEAL SYSTEM** : Tape au moins 2 mots clés pour valider une case !")
+        search = st.text_input("EX: 'BIERE RENVERSEE'", key="search_bar").lower().strip()
+
+        # LOGIQUE DE RÉVÉLATION (2 MOTS CLÉS MINIMUM)
+        search_words = [w for w in search.split() if len(w) >= 2]
+        
+        # Génération Grille Stable
+        grid_data = list(st.session_state.all_ideas)
+        random.seed(user_view)
+        random.shuffle(grid_data)
+        grid_data = (grid_data * 2)[:25]
+
+        # Vérification des nouveaux "Reveals"
+        if len(search_words) >= 2:
+            for idx, item in enumerate(grid_data):
+                # Si tous les mots de la recherche sont dans la case
+                if all(word in item['text'].lower() for word in search_words):
+                    st.session_state.revealed_indices[user_view].add(idx)
+
+        # AFFICHAGE GRILLE
+        html_grid = '<div class="bingo-container">'
+        for idx, item in enumerate(grid_data):
+            is_revealed = idx in st.session_state.revealed_indices[user_view]
             
-            # Grille stable
-            pool = list(st.session_state.all_ideas)
-            random.seed(joueur)
-            random.shuffle(pool)
-            grid = (pool * 2)[:25]
+            style_class = "bingo-box revealed" if is_revealed else "bingo-box"
+            content = item['text'] if is_revealed else "???"
+            border_color = item['color'] if is_revealed else "#333"
             
-            html = '<div class="bingo-container">'
-            for item in grid:
-                cls = "bingo-box"
-                # On vérifie si la recherche est dans le texte
-                if search:
-                    if search in item['text'].lower():
-                        cls += " found"
-                    else:
-                        cls += " not-found"
-                
-                html += f'<div class="{cls}" style="--p-color: {item["color"]}">{item["text"]}</div>'
-            html += '</div>'
-            
-            st.markdown(html, unsafe_allow_html=True)
+            html_grid += f'''
+            <div class="{style_class}" style="--p-color: {border_color};">
+                {content}
+            </div>
+            '''
+        html_grid += '</div>'
+        
+        st.markdown(html_grid, unsafe_allow_html=True)
+        
+        if st.session_state.revealed_indices[user_view]:
+            st.success(f"SCORE : {len(st.session_state.revealed_indices[user_view])} cases trouvées !")
