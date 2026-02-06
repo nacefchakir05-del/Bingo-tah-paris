@@ -72,7 +72,6 @@ FLASHY_COLORS = ["#FF00FF", "#00FFFF", "#FFFF00", "#00FF41", "#FF4B4B", "#FF8000
 # 2) OUTILS
 # =========================
 def normalize_text(s: str) -> str:
-    """Minuscule, sans accents, sans ponctuation (stable pour matching)."""
     s = s.strip().lower()
     s = unicodedata.normalize("NFKD", s)
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
@@ -87,30 +86,70 @@ def tokenize(s: str) -> list[str]:
     return [w for w in s.split() if len(w) >= 2]
 
 def stable_grid_for_player(player_name: str, ideas: list[dict]) -> list[dict]:
-    """Grille de 25 idées stable par joueur (seed sur le nom)."""
     pool = ideas[:]
-    rnd = random.Random(player_name)  # générateur local (évite effets de bord)
+    rnd = random.Random(player_name)
     rnd.shuffle(pool)
-    return pool[:25]  # 28 idées -> 25 sans doublons
+    return pool[:25]
 
 def ensure_unique_player_name(name: str, players: list[dict]) -> bool:
     n = normalize_text(name)
     return n != "" and all(normalize_text(p["name"]) != n for p in players)
 
+def rebuild_ideas(raw_ideas: list[dict]) -> list[dict]:
+    rebuilt = []
+    for it in raw_ideas:
+        text = (it.get("text") or "").strip()
+        author = (it.get("author") or "").strip()
+        color = it.get("color") or "#00FFFF"
+        idea_id = it.get("id") or str(uuid4())
+        tokens = it.get("tokens") or tokenize(text)
+        rebuilt.append(
+            {
+                "id": idea_id,
+                "text": text,
+                "norm": normalize_text(text),
+                "tokens": tokens,
+                "author": author,
+                "color": color,
+            }
+        )
+    return rebuilt
+
+def convert_old_reveals_to_ids(old_reveals: dict, ideas: list[dict], players: list[dict]) -> set:
+    """
+    Ancien format : reveals = { "Thomas": [0, 4, 7], ... } (indices de grille)
+    On convertit en ids d'idées en recalculant la grille stable du joueur.
+    """
+    revealed_ids = set()
+    if not isinstance(old_reveals, dict):
+        return revealed_ids
+
+    player_names = {p.get("name") for p in players if p.get("name")}
+    for pname, idx_list in old_reveals.items():
+        if pname not in player_names:
+            continue
+        if not isinstance(idx_list, list):
+            continue
+        grid = stable_grid_for_player(pname, ideas)
+        for idx in idx_list:
+            if isinstance(idx, int) and 0 <= idx < len(grid):
+                revealed_ids.add(grid[idx]["id"])
+    return revealed_ids
+
 # =========================
 # 3) STATE INIT
 # =========================
 if "players" not in st.session_state:
-    st.session_state.players = []  # [{name, color}]
+    st.session_state.players = []
 if "all_ideas" not in st.session_state:
-    st.session_state.all_ideas = []  # [{id, text, norm, tokens, author, color}]
+    st.session_state.all_ideas = []
 if "revealed_ids" not in st.session_state:
-    st.session_state.revealed_ids = set()  # set(str idea_id)
+    st.session_state.revealed_ids = set()
 if "locked" not in st.session_state:
-    st.session_state.locked = False  # une fois 7 joueurs, on verrouille l'inscription
+    st.session_state.locked = False
 
 # =========================
-# 4) SIDEBAR (BACKUP/RESTORE/RESET)
+# 4) SIDEBAR
 # =========================
 with st.sidebar:
     st.title("💾 SYSTEM CONTROL")
@@ -121,36 +160,25 @@ with st.sidebar:
             try:
                 data = json.loads(restore_input)
 
-                # players
                 st.session_state.players = data.get("players", [])
-
-                # ideas
-                ideas = data.get("ideas", [])
-                rebuilt = []
-                for it in ideas:
-                    text = it.get("text", "")
-                    author = it.get("author", "")
-                    color = it.get("color", "#00FFFF")
-                    idea_id = it.get("id", str(uuid4()))
-                    tokens = it.get("tokens") or tokenize(text)
-                    rebuilt.append(
-                        {
-                            "id": idea_id,
-                            "text": text,
-                            "norm": normalize_text(text),
-                            "tokens": tokens,
-                            "author": author,
-                            "color": color,
-                        }
-                    )
-                st.session_state.all_ideas = rebuilt
-
-                # revealed
-                rev = data.get("revealed_ids", [])
-                st.session_state.revealed_ids = set(rev)
-
-                # locked
+                st.session_state.all_ideas = rebuild_ideas(data.get("ideas", []))
                 st.session_state.locked = bool(data.get("locked", False))
+
+                # Nouveau format recommandé
+                rev_list = data.get("revealed_ids", None)
+                if isinstance(rev_list, list):
+                    st.session_state.revealed_ids = set(rev_list)
+                else:
+                    st.session_state.revealed_ids = set()
+
+                # Compatibilité ancien format (reveals par index)
+                if not st.session_state.revealed_ids and "reveals" in data:
+                    converted = convert_old_reveals_to_ids(
+                        data.get("reveals"),
+                        st.session_state.all_ideas,
+                        st.session_state.players
+                    )
+                    st.session_state.revealed_ids = converted
 
                 st.success("DATA SYNC OK")
                 st.rerun()
@@ -171,6 +199,7 @@ with st.sidebar:
                 }
                 for it in st.session_state.all_ideas
             ],
+            # IMPORTANT : JSON -> liste (pas set)
             "revealed_ids": list(st.session_state.revealed_ids),
             "locked": st.session_state.locked,
         }
@@ -191,7 +220,7 @@ with st.sidebar:
 # =========================
 st.title("👾 NEON BINGO ARCADE")
 
-# ÉTAPE 1 : INSCRIPTION
+# INSCRIPTION
 if (not st.session_state.locked) and (len(st.session_state.players) < 7):
     st.header(f"INSCRIPTION : PLAYER {len(st.session_state.players) + 1}/7")
 
@@ -210,7 +239,8 @@ if (not st.session_state.locked) and (len(st.session_state.players) < 7):
                 st.error("NOM DÉJÀ UTILISÉ (ou vide). Mets un nom unique.")
             else:
                 p_color = FLASHY_COLORS[len(st.session_state.players) % len(FLASHY_COLORS)]
-                st.session_state.players.append({"name": new_name.strip(), "color": p_color})
+                player_name = new_name.strip()
+                st.session_state.players.append({"name": player_name, "color": p_color})
 
                 for idea_text in [pred1, pred2, pred3, pred4]:
                     idea_text = idea_text.strip()
@@ -220,18 +250,17 @@ if (not st.session_state.locked) and (len(st.session_state.players) < 7):
                             "text": idea_text,
                             "norm": normalize_text(idea_text),
                             "tokens": tokenize(idea_text),
-                            "author": new_name.strip(),
+                            "author": player_name,
                             "color": p_color,
                         }
                     )
 
-                # si 7 joueurs, on verrouille
                 if len(st.session_state.players) >= 7:
                     st.session_state.locked = True
 
                 st.rerun()
 
-# ÉTAPE 2 : ACCÈS AU JEU (verrouillage ou 7 joueurs)
+# JEU
 else:
     if len(st.session_state.players) < 7:
         st.warning("SESSION RESTAURÉE MAIS INCOMPLÈTE : il faut 7 joueurs pour jouer.")
@@ -247,18 +276,14 @@ else:
             st.divider()
             st.write("🔍 **REVEAL SCANNER** (2 mots minimum)")
             search_query = st.text_input("EX: 'Thomas clés'").strip()
-
             words = tokenize(search_query)
 
-            # Construire la grille du joueur (stable)
             if len(st.session_state.all_ideas) < 25:
                 st.error("Il manque des idées pour générer une grille de 25 cases.")
                 st.stop()
 
             final_grid = stable_grid_for_player(user_select, st.session_state.all_ideas)
 
-            # RÉVÉLATION GLOBALE : si match -> on ajoute l'idea_id au set global
-            # (un événement du week-end débloque l'idée, pas une position)
             if len(words) >= 2:
                 hit = False
                 for item in st.session_state.all_ideas:
@@ -268,12 +293,9 @@ else:
                             st.session_state.revealed_ids.add(item["id"])
                             st.toast(f"CASE DÉBLOQUÉE : {item['text']}")
                         hit = True
-
-                # petit feedback si rien ne match (optionnel, mais utile)
                 if not hit and search_query != "":
                     st.info("Aucun match. Essaie des mots plus spécifiques.")
 
-            # AFFICHAGE DE LA GRILLE
             grid_html = '<div class="bingo-container">'
             score = 0
             for item in final_grid:
@@ -289,7 +311,6 @@ else:
             st.markdown(grid_html, unsafe_allow_html=True)
             st.write(f"SCORE : {score} / 25")
 
-            # BONUS : afficher la légende des auteurs (pratique en soirée)
             with st.expander("🎨 LÉGENDE (auteur → couleur)"):
                 for p in st.session_state.players:
                     st.markdown(f'<p style="color:{p["color"]};">■ {p["name"]}</p>', unsafe_allow_html=True)
