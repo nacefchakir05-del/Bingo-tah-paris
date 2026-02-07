@@ -6,9 +6,9 @@ import unicodedata
 from uuid import uuid4
 
 # =========================
-# 1) CONFIG & DESIGN
+# 1) CONFIG & DESIGN NEON
 # =========================
-st.set_page_config(page_title="BINGO NEON CHAMPIONSHIP", layout="centered")
+st.set_page_config(page_title="NEON BINGO CHAMPION", layout="centered")
 
 st.markdown(
     """
@@ -22,7 +22,7 @@ st.markdown(
         text-shadow: 0 0 8px #00FF41;
     }
 
-    /* Grille */
+    /* Grille Bingo */
     .bingo-container {
         display: grid; grid-template-columns: repeat(5, 1fr);
         gap: 6px; width: 100%; max-width: 450px; margin: auto;
@@ -30,12 +30,11 @@ st.markdown(
 
     .bingo-box {
         aspect-ratio: 1/1; background: #0a0a0a !important;
-        border: 1px solid #222; color: transparent !important;
+        border: 1px solid #333; color: transparent !important;
         display: flex; align-items: center; justify-content: center;
-        text-align: center; font-size: 8px; /* Texte réduit */
-        padding: 4px; border-radius: 4px; line-height: 1;
+        text-align: center; font-size: 8px !important; /* TEXTE PETIT */
+        padding: 4px; border-radius: 4px; line-height: 1.1;
         transition: all 0.4s ease;
-        user-select: none;
     }
 
     .revealed {
@@ -45,18 +44,15 @@ st.markdown(
         font-weight: bold;
     }
 
-    /* Classement */
-    .leaderboard-card {
-        border: 1px solid #FF00FF;
-        padding: 10px;
-        border-radius: 8px;
-        margin-bottom: 20px;
-        background: rgba(255, 0, 255, 0.05);
-    }
-
+    /* Sidebar & Inputs */
     section[data-testid="stSidebar"] {
         background-color: #050505 !important;
         border-right: 2px solid #FF00FF;
+    }
+
+    .legend-box {
+        padding: 5px; border-left: 5px solid var(--p-color);
+        margin-bottom: 5px; background: #111;
     }
 
     input {
@@ -68,17 +64,21 @@ st.markdown(
         background: #FF00FF !important; color: white !important;
         border: 2px solid #00FFFF !important; font-size: 18px !important;
     }
+    
+    .reveal-all-btn>button {
+        background: #FF4B4B !important; /* Rouge pour le bouton spécial */
+        border: 2px solid #FFF !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-SECRET_USER = "1234"
-SECRET_GOD_MODE = "REVELATION" # Code pour tout découvrir
+SECRET = "1234"
 FLASHY_COLORS = ["#FF00FF", "#00FFFF", "#FFFF00", "#00FF41", "#FF4B4B", "#FF8000", "#BF00FF"]
 
 # =========================
-# 2) OUTILS LOGIQUES
+# 2) FONCTIONS UTILS
 # =========================
 def normalize_text(s: str) -> str:
     s = s.strip().lower()
@@ -98,19 +98,6 @@ def stable_grid_for_player(player_name: str, ideas: list[dict]) -> list[dict]:
     rnd.shuffle(pool)
     return pool[:25]
 
-def rebuild_ideas(raw_ideas: list[dict]) -> list[dict]:
-    rebuilt = []
-    for it in raw_ideas:
-        text = it.get("text", "").strip()
-        rebuilt.append({
-            "id": it.get("id") or str(uuid4()),
-            "text": text,
-            "tokens": it.get("tokens") or tokenize(text),
-            "author": it.get("author", "Inconnu"),
-            "color": it.get("color", "#00FFFF"),
-        })
-    return rebuilt
-
 # =========================
 # 3) INITIALISATION
 # =========================
@@ -120,125 +107,111 @@ if "revealed_ids" not in st.session_state: st.session_state.revealed_ids = set()
 if "locked" not in st.session_state: st.session_state.locked = False
 
 # =========================
-# 4) SIDEBAR (BACKUP & CLASSEMENT)
+# 4) SIDEBAR (LÉGENDE & BACKUP)
 # =========================
 with st.sidebar:
-    st.title("📟 DATA & SCORE")
+    st.title("🕹️ DASHBOARD")
 
-    # CLASSEMENT COLLECTIF
-    if st.session_state.revealed_ids:
-        st.subheader("🏆 LEADERBOARD")
-        # Compter les points par auteur
+    # --- LA LÉGENDE (Toujours visible) ---
+    if st.session_state.players:
+        st.subheader("🎨 LÉGENDE JOUEURS")
+        for p in st.session_state.players:
+            st.markdown(f"""
+                <div class="legend-box" style="--p-color: {p['color']};">
+                    <span style="color:{p['color']}; font-weight:bold;">{p['name']}</span>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        # --- CLASSEMENT ---
+        st.divider()
+        st.subheader("🏆 SCORE")
         scores = {p["name"]: 0 for p in st.session_state.players}
         for idea in st.session_state.all_ideas:
             if idea["id"] in st.session_state.revealed_ids:
-                author = idea["author"]
-                if author in scores:
-                    scores[author] += 1
+                if idea["author"] in scores: scores[idea["author"]] += 1
         
-        # Affichage trié
-        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        for name, score in sorted_scores:
-            p_color = next((p["color"] for p in st.session_state.players if p["name"] == name), "#FFF")
-            st.markdown(f'<p style="color:{p_color}; margin:0;">{name}: {score} pts</p>', unsafe_allow_html=True)
-    
-    st.divider()
+        for name, pts in sorted(scores.items(), key=lambda x: x[1], reverse=True):
+            st.write(f"{name} : {pts} pts")
 
-    with st.expander("💾 BACKUP"):
-        restore_input = st.text_area("Coller code :")
-        if st.button("RESTAURER"):
+    st.divider()
+    with st.expander("💾 SAUVEGARDE"):
+        code_in = st.text_area("Restaurer code :")
+        if st.button("OK"):
             try:
-                data = json.loads(restore_input)
-                st.session_state.players = data.get("players", [])
-                st.session_state.all_ideas = rebuild_ideas(data.get("ideas", []))
-                st.session_state.revealed_ids = set(data.get("revealed_ids", []))
-                st.session_state.locked = data.get("locked", False)
+                d = json.loads(code_in)
+                st.session_state.players, st.session_state.all_ideas = d["players"], d["ideas"]
+                st.session_state.revealed_ids, st.session_state.locked = set(d["revealed_ids"]), d["locked"]
                 st.rerun()
             except: st.error("Erreur")
+        
+        if st.session_state.all_ideas:
+            save_obj = {"players": st.session_state.players, "ideas": st.session_state.all_ideas, 
+                        "revealed_ids": list(st.session_state.revealed_ids), "locked": st.session_state.locked}
+            st.code(json.dumps(save_obj, ensure_ascii=False))
 
-    if st.session_state.all_ideas:
-        st.subheader("CODE SAUVEGARDE")
-        save_data = {
-            "players": st.session_state.players,
-            "ideas": st.session_state.all_ideas,
-            "revealed_ids": list(st.session_state.revealed_ids),
-            "locked": st.session_state.locked
-        }
-        st.code(json.dumps(save_data, ensure_ascii=False))
-
-    if st.button("RESET TOTAL"):
+    if st.button("RESET TOUT"):
         st.session_state.clear()
         st.rerun()
 
 # =========================
-# 5) PHASE INSCRIPTION
+# 5) INSCRIPTION
 # =========================
-st.title("👾 BINGO TAH LES ZINZINS ")
+st.title("👾 BINGO REVEAL")
 
 if not st.session_state.locked and len(st.session_state.players) < 7:
-    st.header(f"INSCRIPTION : {len(st.session_state.players) + 1}/7")
+    st.header(f"JOUEUR {len(st.session_state.players) + 1}/7")
     with st.form(key=f"reg_{len(st.session_state.players)}", clear_on_submit=True):
-        new_name = st.text_input("NOM :")
-        preds = [st.text_input(f"PRÉDICTION {i+1}") for i in range(4)]
-        
+        name = st.text_input("TON NOM :")
+        p1 = st.text_input("PRÉDICTION 1")
+        p2 = st.text_input("PRÉDICTION 2")
+        p3 = st.text_input("PRÉDICTION 3")
+        p4 = st.text_input("PRÉDICTION 4")
         if st.form_submit_button("VALIDER"):
-            if new_name and all(preds):
-                p_color = FLASHY_COLORS[len(st.session_state.players)]
-                st.session_state.players.append({"name": new_name, "color": p_color})
-                for p in preds:
+            if name and p1 and p2 and p3 and p4:
+                color = FLASHY_COLORS[len(st.session_state.players)]
+                st.session_state.players.append({"name": name, "color": color})
+                for txt in [p1, p2, p3, p4]:
                     st.session_state.all_ideas.append({
-                        "id": str(uuid4()), "text": p.strip(), 
-                        "tokens": tokenize(p), "author": new_name, "color": p_color
+                        "id": str(uuid4()), "text": txt.strip(), "author": name, "color": color, "tokens": tokenize(txt)
                     })
                 if len(st.session_state.players) >= 7: st.session_state.locked = True
                 st.rerun()
-            else: st.error("Champs vides !")
 
 # =========================
-# 6) PHASE JEU
+# 6) JEU
 # =========================
 else:
-    access_code = st.text_input("CODE ACCÈS (ou Code Secret)", type="password")
+    pwd = st.text_input("CODE ACCÈS :", type="password")
 
-    # OPTION : RÉVÉLER TOUT
-    if access_code == SECRET_GOD_MODE:
-        if st.button("💥 RÉVÉLER TOUTES LES CASES"):
-            all_ids = {it["id"] for it in st.session_state.all_ideas}
-            st.session_state.revealed_ids = all_ids
-            st.success("Toutes les cases sont maintenant visibles !")
+    if pwd == SECRET:
+        # --- BOUTON REVEAL ALL (Conditionnel au code 1234) ---
+        st.markdown('<div class="reveal-all-btn">', unsafe_allow_html=True)
+        if st.button("🔓 TOUT RÉVÉLER (GOD MODE)"):
+            st.session_state.revealed_ids = {i["id"] for i in st.session_state.all_ideas}
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    if access_code == SECRET_USER or access_code == SECRET_GOD_MODE:
-        user_select = st.selectbox("JOUEUR :", [p["name"] for p in st.session_state.players])
+        user_view = st.selectbox("VOIR LA GRILLE DE :", [p["name"] for p in st.session_state.players])
         
-        # REVEAL SCANNER
         st.divider()
-        search_query = st.text_input("🔍 REVEAL SCANNER (2 mots clés)").strip()
-        words = tokenize(search_query)
+        search = st.text_input("🔍 SCANNER (2 mots clés ex: 'Thomas bière')").strip()
+        search_tokens = tokenize(search)
 
-        if len(words) >= 2:
+        if len(search_tokens) >= 2:
             for item in st.session_state.all_ideas:
-                if all(w in item["tokens"] for w in words):
+                if all(t in item["tokens"] for t in search_tokens):
                     if item["id"] not in st.session_state.revealed_ids:
                         st.session_state.revealed_ids.add(item["id"])
-                        st.toast(f"DÉBLOQUÉ : {item['text']} (par {item['author']})")
+                        st.toast(f"MATCH ! {item['text']}")
 
-        # AFFICHAGE GRILLE
-        final_grid = stable_grid_for_player(user_select, st.session_state.all_ideas)
-        grid_html = '<div class="bingo-container">'
-        
-        for item in final_grid:
-            is_revealed = item["id"] in st.session_state.revealed_ids
-            box_class = "bingo-box revealed" if is_revealed else "bingo-box"
-            txt = item["text"] if is_revealed else "???"
-            clr = item["color"] if is_revealed else "#333"
-            grid_html += f'<div class="{box_class}" style="--p-color: {clr};">{txt}</div>'
-        
-        grid_html += "</div>"
-        st.markdown(grid_html, unsafe_allow_html=True)
-        
-        # LÉGENDE RAPIDE
-        st.write("---")
-        cols = st.columns(4)
-        for i, p in enumerate(st.session_state.players):
-            cols[i % 4].markdown(f'<p style="color:{p["color"]}; font-size:12px;">■ {p["name"]}</p>', unsafe_allow_html=True)
+        # GRILLE
+        grid = stable_grid_for_player(user_view, st.session_state.all_ideas)
+        html = '<div class="bingo-container">'
+        for it in grid:
+            is_rev = it["id"] in st.session_state.revealed_ids
+            cls = "bingo-box revealed" if is_rev else "bingo-box"
+            display = it["text"] if is_rev else "???"
+            c = it["color"] if is_rev else "#333"
+            html += f'<div class="{cls}" style="--p-color: {c};">{display}</div>'
+        html += "</div>"
+        st.markdown(html, unsafe_allow_html=True)
